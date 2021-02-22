@@ -21,7 +21,7 @@ import (
 	"strings"
 	"time"
 
-	v1 "k8s.io/api/core/v1"
+	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
@@ -100,10 +100,6 @@ type ClusterSpec struct {
 	// ServerConfig is the extra configuration for the NATS server.
 	ServerConfig *ServerConfig `json:"natsConfig,omitempty"`
 
-	// UseServerName uses the environment variable to set a server
-	// name for each one of the pods.
-	UseServerName bool `json:"useServerName,omitempty"`
-
 	// Paused is to pause the control of the operator for the cluster.
 	Paused bool `json:"paused,omitempty"`
 
@@ -141,9 +137,6 @@ type ClusterSpec struct {
 
 	// OperatorConfig is the operator configuration from a server.
 	OperatorConfig *OperatorConfig `json:"operatorConfig,omitempty"`
-
-	// WebsocketConfig is the websocket configuration from a server.
-	WebsocketConfig *WebsocketConfig `json:"websocketConfig,omitempty"`
 }
 
 // ServerConfig is extra configuration for the NATS server.
@@ -176,13 +169,6 @@ type ExtraRoute struct {
 	Route string `json:"route,omitempty"`
 }
 
-// WebsocketConfig is the websocket configuration from a server.
-type WebsocketConfig struct {
-	Port             int    `json:"port,omitempty"`
-	HandshakeTimeout string `json:"handshakeTimeout,omitempty"`
-	Compression      bool   `json:"compression,omitempty"`
-}
-
 // GatewayConfig is the configuration for the gateway.
 type GatewayConfig struct {
 	// Name is the name of the gateway cluster.
@@ -191,11 +177,6 @@ type GatewayConfig struct {
 	// Port is the port that will bound from this host
 	// for external access.
 	Port int `json:"hostPort,omitempty"`
-
-	// RejectUnknown indicates to use an implicit authorization map for inbound
-	// connections, consisting of the names of our outbound gateway
-	// declarations.
-	RejectUnknown bool `json:"rejectUnknown,omitempty"`
 
 	// Gateways is the list of remote gateways to which
 	// this cluster will be connecting.
@@ -211,17 +192,9 @@ type RemoteGatewayOpts struct {
 	URL string `json:"url,omitempty"`
 }
 
-// LeafNodeRemote is the URL for remote NATS system.
-type LeafNodeRemote struct {
-	URL         string   `json:"url,omitempty"`
-	URLs        []string `json:"urls,omitempty"`
-	Credentials string   `json:"credentials,omitempty"`
-}
-
 // LeafNodeConfig is the configuration for leafnodes.
 type LeafNodeConfig struct {
-	Port    int              `json:"hostPort,omitempty"`
-	Remotes []LeafNodeRemote `json:"remotes,omitempty"`
+	Port int `json:"hostPort,omitempty"`
 }
 
 // TLSConfig is the optional TLS configuration for the cluster.
@@ -286,12 +259,6 @@ type TLSConfig struct {
 	// LeafnodeSecretCertFileName is the name of the certificate in LeafnodeSecret
 	LeafnodeSecretCertFileName string `json:"leafnodeSecretCertFileName,omitempty"`
 
-	WebsocketSecret             string  `json:"websocketSecret,omitempty"`
-	WebsocketSecretCAFileName   string  `json:"websocketSecretCAFileName,omitempty"`
-	WebsocketSecretKeyFileName  string  `json:"websocketSecretKeyFileName,omitempty"`
-	WebsocketSecretCertFileName string  `json:"websocketSecretCertFileName,omitempty"`
-	WebsocketTLSTimeout         float64 `json:"websocketTLSTimeout,omitempty"`
-
 	// EnableHttps makes the monitoring endpoint use https.
 	EnableHttps bool `json:"enableHttps,omitempty"`
 
@@ -313,12 +280,6 @@ type TLSConfig struct {
 
 	// Verify toggles verifying TLS certs for clients.
 	Verify bool `json:"verify,omitempty"`
-
-	// CipherSuites
-	CipherSuites []string `json:"cipherSuites,omitempty"`
-
-	// CurvePreferences
-	CurvePreferences []string `json:"curvePreferences,omitempty"`
 }
 
 // PodPolicy defines the policy to create pod for the NATS container.
@@ -363,9 +324,6 @@ type PodPolicy struct {
 
 	// ReloaderImagePullPolicy is the pull policy for the reloader image.
 	ReloaderImagePullPolicy string `json:"reloaderImagePullPolicy,omitempty"`
-
-	// ReloaderResources is the reesource requirements for the reloader container
-	ReloaderResources v1.ResourceRequirements `json:"reloaderResources,omitempty"`
 
 	// EnableMetrics attaches a sidecar to each NATS Server
 	// that will export prometheus metrics.
@@ -483,15 +441,6 @@ func (c *ClusterSpec) Cleanup() {
 		}
 		if len(c.TLS.LeafnodeSecretKeyFileName) == 0 {
 			c.TLS.LeafnodeSecretKeyFileName = constants.DefaultLeafnodeKeyFileName
-		}
-		if len(c.TLS.WebsocketSecretCAFileName) == 0 {
-			c.TLS.WebsocketSecretCAFileName = constants.DefaultWebsocketCAFileName
-		}
-		if len(c.TLS.WebsocketSecretCertFileName) == 0 {
-			c.TLS.WebsocketSecretCertFileName = constants.DefaultWebsocketCertFileName
-		}
-		if len(c.TLS.WebsocketSecretKeyFileName) == 0 {
-			c.TLS.WebsocketSecretKeyFileName = constants.DefaultWebsocketKeyFileName
 		}
 	}
 }

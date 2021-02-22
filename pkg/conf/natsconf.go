@@ -9,7 +9,6 @@ import (
 type ServerConfig struct {
 	Host             string                `json:"host,omitempty"`
 	Port             int                   `json:"port,omitempty"`
-	ServerName       string                `json:"server_name,omitempty"`
 	HTTPPort         int                   `json:"http_port,omitempty"`
 	HTTPSPort        int                   `json:"https_port,omitempty"`
 	Cluster          *ClusterConfig        `json:"cluster,omitempty"`
@@ -28,7 +27,6 @@ type ServerConfig struct {
 	Include          string                `json:"include,omitempty"`
 	Gateway          *GatewayConfig        `json:"gateway,omitempty"`
 	LeafNode         *LeafNodeServerConfig `json:"leaf,omitempty"`
-	Websocket        *WebsocketConfig      `json:"websocket,omitempty"`
 	JWT              string                `json:"operator,omitempty"`
 	SystemAccount    string                `json:"system_account,omitempty"`
 	Resolver         string                `json:"resolver,omitempty"`
@@ -41,13 +39,6 @@ type ClusterConfig struct {
 	Authorization *AuthorizationConfig `json:"authorization,omitempty"`
 }
 
-type WebsocketConfig struct {
-	Listen           string     `json:"listen"`
-	TLS              *TLSConfig `json:"tls,omitempty"`
-	HandshakeTimeout string     `json:"handshake_timeout,omitempty"`
-	Compression      bool       `json:"compression,omitempty"`
-}
-
 type GatewayConfig struct {
 	Name           string               `json:"name,omitempty"`
 	Host           string               `json:"addr,omitempty"`
@@ -57,24 +48,16 @@ type GatewayConfig struct {
 	Advertise      string               `json:"advertise,omitempty"`
 	ConnectRetries int                  `json:"connect_retries,omitempty"`
 	Gateways       []*RemoteGatewayOpts `json:"gateways,omitempty"`
-	RejectUnknown  bool                 `json:"reject_unknown,omitempty"`
 	Include        string               `json:"include,omitempty"`
 	Authorization  *AuthorizationConfig `json:"authorization,omitempty"`
 }
 
-// LeafNodeRemote is the URL for remote NATS system.
-type LeafNodeRemote struct {
-	URLs        []string `json:"urls,omitempty"`
-	Credentials string   `json:"credentials,omitempty"`
-}
-
 type LeafNodeServerConfig struct {
-	Port       int              `json:"port,omitempty"`
-	TLS        *TLSConfig       `json:"tls,omitempty"`
-	TLSTimeout float64          `json:"tls_timeout,omitempty"`
-	Advertise  string           `json:"advertise,omitempty"`
-	Include    string           `json:"include,omitempty"`
-	Remotes    []LeafNodeRemote `json:"remotes,omitempty"`
+	Port       int        `json:"port,omitempty"`
+	TLS        *TLSConfig `json:"tls,omitempty"`
+	TLSTimeout float64    `json:"tls_timeout,omitempty"`
+	Advertise  string     `json:"advertise,omitempty"`
+	Include    string     `json:"include,omitempty"`
 }
 
 type RemoteGatewayOpts struct {
@@ -106,7 +89,6 @@ type AuthorizationConfig struct {
 type User struct {
 	User        string       `json:"username,omitempty"`
 	Password    string       `json:"password,omitempty"`
-	NKey        string       `json:"nkey,omitempty"`
 	Permissions *Permissions `json:"permissions,omitempty"`
 }
 

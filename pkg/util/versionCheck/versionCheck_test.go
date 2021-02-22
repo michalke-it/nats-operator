@@ -34,16 +34,4 @@ func TestServerBinaryPath(t *testing.T) {
 	if got != expected {
 		t.Fatalf("Expected %q, got: %q", expected, got)
 	}
-
-	got = ServerBinaryPath("nightly-20201008")
-	expected = NightlyNatsBinaryPath
-	if got != expected {
-		t.Fatalf("Expected %q, got: %q", expected, got)
-	}
-
-	got = ServerBinaryPath("nightly")
-	expected = NightlyNatsBinaryPath
-	if got != expected {
-		t.Fatalf("Expected %q, got: %q", expected, got)
-	}
 }

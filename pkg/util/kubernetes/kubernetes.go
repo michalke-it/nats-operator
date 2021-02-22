@@ -25,7 +25,7 @@ import (
 	"time"
 
 	authenticationv1 "k8s.io/api/authentication/v1"
-	v1 "k8s.io/api/core/v1"
+	"k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -42,7 +42,7 @@ import (
 	"github.com/nats-io/nats-operator/pkg/apis/nats/v1alpha2"
 	natsclient "github.com/nats-io/nats-operator/pkg/client/clientset/versioned"
 	natsalphav2client "github.com/nats-io/nats-operator/pkg/client/clientset/versioned/typed/nats/v1alpha2"
-	natsconf "github.com/nats-io/nats-operator/pkg/conf"
+	"github.com/nats-io/nats-operator/pkg/conf"
 	"github.com/nats-io/nats-operator/pkg/constants"
 	"github.com/nats-io/nats-operator/pkg/util/retryutil"
 	"github.com/nats-io/nats-operator/pkg/util/versionCheck"
@@ -101,29 +101,13 @@ func ClientServiceName(clusterName string) string {
 	return clusterName
 }
 
-func CreateClientService(
-	kubecli corev1client.CoreV1Interface,
-	clusterName, ns string,
-	owner metav1.OwnerReference,
-	websocketPort int,
-) error {
-	ports := []v1.ServicePort{
-		{
-			Name:       "client",
-			Port:       constants.ClientPort,
-			TargetPort: intstr.FromInt(constants.ClientPort),
-			Protocol:   v1.ProtocolTCP,
-		},
-	}
-	if websocketPort > 0 {
-		ports = append(ports, v1.ServicePort{
-			Name:       "websocket",
-			Port:       int32(websocketPort),
-			TargetPort: intstr.FromInt(websocketPort),
-			Protocol:   v1.ProtocolTCP,
-		})
-	}
-
+func CreateClientService(kubecli corev1client.CoreV1Interface, clusterName, ns string, owner metav1.OwnerReference) error {
+	ports := []v1.ServicePort{{
+		Name:       "client",
+		Port:       constants.ClientPort,
+		TargetPort: intstr.FromInt(constants.ClientPort),
+		Protocol:   v1.ProtocolTCP,
+	}}
 	selectors := LabelsForCluster(clusterName)
 	return createService(kubecli, ClientServiceName(clusterName), clusterName, ns, "", ports, owner, selectors, false)
 }
@@ -133,12 +117,7 @@ func ManagementServiceName(clusterName string) string {
 }
 
 // CreateMgmtService creates an headless service for NATS management purposes.
-func CreateMgmtService(
-	kubecli corev1client.CoreV1Interface,
-	clusterName, clusterVersion, ns string,
-	owner metav1.OwnerReference,
-	websocketPort int,
-) error {
+func CreateMgmtService(kubecli corev1client.CoreV1Interface, clusterName, clusterVersion, ns string, owner metav1.OwnerReference) error {
 	ports := []v1.ServicePort{
 		{
 			Name:       "cluster",
@@ -159,15 +138,6 @@ func CreateMgmtService(
 			Protocol:   v1.ProtocolTCP,
 		},
 	}
-	if websocketPort > 0 {
-		ports = append(ports, v1.ServicePort{
-			Name:       "websocket",
-			Port:       int32(websocketPort),
-			TargetPort: intstr.FromInt(websocketPort),
-			Protocol:   v1.ProtocolTCP,
-		})
-	}
-
 	selectors := LabelsForCluster(clusterName)
 	selectors[LabelClusterVersionKey] = clusterVersion
 	return createService(kubecli, ManagementServiceName(clusterName), clusterName, ns, v1.ClusterIPNone, ports, owner, selectors, true)
@@ -198,10 +168,6 @@ func addTLSConfig(sconfig *natsconf.ServerConfig, cs v1alpha2.ClusterSpec) {
 
 		// Verifying clients cert is disabled by default.
 		sconfig.TLS.Verify = cs.TLS.Verify
-
-		// Customize cipher suites and curve preferences.
-		sconfig.TLS.CipherSuites = cs.TLS.CipherSuites
-		sconfig.TLS.CurvePreferences = cs.TLS.CurvePreferences
 	}
 	if cs.TLS.RoutesSecret != "" {
 		sconfig.Cluster.TLS = &natsconf.TLSConfig{
@@ -224,6 +190,7 @@ func addTLSConfig(sconfig *natsconf.ServerConfig, cs v1alpha2.ClusterSpec) {
 		}
 	}
 	if cs.TLS.LeafnodeSecret != "" {
+		// Reuse the same settings as those for clients.
 		sconfig.LeafNode.TLS = &natsconf.TLSConfig{
 			CAFile:   filepath.Join(constants.LeafnodeCertsMountPath, cs.TLS.LeafnodeSecretCAFileName),
 			CertFile: filepath.Join(constants.LeafnodeCertsMountPath, cs.TLS.LeafnodeSecretCertFileName),
@@ -234,19 +201,6 @@ func addTLSConfig(sconfig *natsconf.ServerConfig, cs v1alpha2.ClusterSpec) {
 			sconfig.LeafNode.TLS.Timeout = timeout
 		}
 	}
-
-	if cs.TLS.WebsocketSecret != "" {
-		sconfig.Websocket.TLS = &natsconf.TLSConfig{
-			CAFile:   filepath.Join(constants.WebsocketCertsMountPath, cs.TLS.WebsocketSecretCAFileName),
-			CertFile: filepath.Join(constants.WebsocketCertsMountPath, cs.TLS.WebsocketSecretCertFileName),
-			KeyFile:  filepath.Join(constants.WebsocketCertsMountPath, cs.TLS.WebsocketSecretKeyFileName),
-		}
-		timeout := cs.TLS.WebsocketTLSTimeout
-		if timeout > 0 {
-			sconfig.Websocket.TLS.Timeout = timeout
-		}
-	}
-
 	if cs.Auth != nil && cs.Auth.TLSVerifyAndMap {
 		sconfig.TLS.VerifyAndMap = true
 	}
@@ -278,103 +232,94 @@ func addAuthConfig(
 			return err
 		}
 
-		namespaces, err := kubecli.Namespaces().List(metav1.ListOptions{})
-		if err != nil {
-			return err
-		}
+		for _, role := range roles.Items {
+			// Lookup for a ServiceAccount with the same name as the NatsServiceRole.
+			sa, err := kubecli.ServiceAccounts(ns).Get(role.Name, metav1.GetOptions{})
+			if err != nil {
+				// TODO: Collect created secrets when the service account no
+				// longer exists, currently only deleted when the NatsServiceRole
+				// is deleted since it is the owner of the object.
 
-		for _, nsObj := range namespaces.Items {
-			ns = nsObj.Name
+				// Skip since cannot map unless valid service account is found.
+				continue
+			}
 
-			for _, role := range roles.Items {
-				// Lookup for a ServiceAccount with the same name as the NatsServiceRole.
-
-				sa, err := kubecli.ServiceAccounts(ns).Get(role.Name, metav1.GetOptions{})
-				if err != nil {
-					// TODO: Collect created secrets when the service account no
-					// longer exists, currently only deleted when the NatsServiceRole
-					// is deleted since it is the owner of the object.
-
-					// Skip since cannot map unless valid service account is found.
-					continue
-				}
-
-				// TODO: Add support for expiration of the issued tokens.
-				tokenSecretName := fmt.Sprintf("%s-%s-bound-token", role.Name, clusterName)
-				cs, err := kubecli.Secrets(ns).Get(tokenSecretName, metav1.GetOptions{})
-				if err == nil {
-					// We always get everything and apply, in case there is a diff
-					// then the reloader will apply them.
-					user := &natsconf.User{
-						User:     role.Name,
-						Password: string(cs.Data["token"]),
-						Permissions: &natsconf.Permissions{
-							Publish:   role.Spec.Permissions.Publish,
-							Subscribe: role.Spec.Permissions.Subscribe,
-						},
-					}
-					users = append(users, user)
-					continue
-				}
-
-				// Create the secret, then make a service token request, and finally
-				// update the secret with the token mapped to the service account.
-				tokenSecret := &v1.Secret{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:   tokenSecretName,
-						Labels: LabelsForCluster(clusterName),
+			// TODO: Add support for expiration of the issued tokens.
+			tokenSecretName := fmt.Sprintf("%s-%s-bound-token", role.Name, clusterName)
+			cs, err := kubecli.Secrets(ns).Get(tokenSecretName, metav1.GetOptions{})
+			if err == nil {
+				// We always get everything and apply, in case there is a diff
+				// then the reloader will apply them.
+				user := &natsconf.User{
+					User:     role.Name,
+					Password: string(cs.Data["token"]),
+					Permissions: &natsconf.Permissions{
+						Publish:   role.Spec.Permissions.Publish,
+						Subscribe: role.Spec.Permissions.Subscribe,
 					},
 				}
+				users = append(users, user)
+				continue
+			}
 
-				// When the role that was mapped is deleted, then also delete the secret.
-				addOwnerRefToObject(tokenSecret.GetObjectMeta(), role.AsOwner())
-				tokenSecret, err = kubecli.Secrets(ns).Create(tokenSecret)
+			// Create the secret, then make a service token request, and finally
+			// update the secret with the token mapped to the service account.
+			tokenSecret := &v1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   tokenSecretName,
+					Labels: LabelsForCluster(clusterName),
+				},
+			}
+
+			// When the role that was mapped is deleted, then also delete the secret.
+			addOwnerRefToObject(tokenSecret.GetObjectMeta(), role.AsOwner())
+			tokenSecret, err = kubecli.Secrets(ns).Create(tokenSecret)
+			if err != nil {
+				return err
+			}
+
+			// Issue token with audience set for the NATS cluster in this namespace only,
+			// this will prevent the token from being usable against the API Server.
+			ar := &authenticationv1.TokenRequest{
+				Spec: authenticationv1.TokenRequestSpec{
+					Audiences: []string{fmt.Sprintf("nats://%s.%s.svc", clusterName, ns)},
+
+					// Service Token will be valid for as long as the created secret exists.
+					BoundObjectRef: &authenticationv1.BoundObjectReference{
+						Kind:       "Secret",
+						APIVersion: "v1",
+						Name:       tokenSecret.Name,
+						UID:        tokenSecret.UID,
+					},
+				},
+			}
+			tr, err := kubecli.ServiceAccounts(ns).CreateToken(sa.Name, ar)
+			if err != nil {
+				return err
+			}
+
+			if err == nil {
+				// Update secret with issued token, then save the user in the NATS Config.
+				token := tr.Status.Token
+				tokenSecret.Data = map[string][]byte{
+					"token": []byte(token),
+				}
+				tokenSecret, err = kubecli.Secrets(ns).Update(tokenSecret)
 				if err != nil {
 					return err
 				}
-
-				// Issue token with audience set for the NATS cluster in this namespace only,
-				// this will prevent the token from being usable against the API Server.
-				ar := &authenticationv1.TokenRequest{
-					Spec: authenticationv1.TokenRequestSpec{
-						Audiences: []string{fmt.Sprintf("nats://%s.%s.svc", clusterName, ns)},
-
-						// Service Token will be valid for as long as the created secret exists.
-						BoundObjectRef: &authenticationv1.BoundObjectReference{
-							Kind:       "Secret",
-							APIVersion: "v1",
-							Name:       tokenSecret.Name,
-							UID:        tokenSecret.UID,
-						},
+				user := &natsconf.User{
+					User:     role.Name,
+					Password: string(token),
+					Permissions: &natsconf.Permissions{
+						Publish:   role.Spec.Permissions.Publish,
+						Subscribe: role.Spec.Permissions.Subscribe,
 					},
 				}
-				tr, err := kubecli.ServiceAccounts(ns).CreateToken(sa.Name, ar)
-				if err != nil {
-					return err
-				}
-
-				if err == nil {
-					// Update secret with issued token, then save the user in the NATS Config.
-					token := tr.Status.Token
-					tokenSecret.Data = map[string][]byte{
-						"token": []byte(token),
-					}
-					tokenSecret, err = kubecli.Secrets(ns).Update(tokenSecret)
-					if err != nil {
-						return err
-					}
-					user := &natsconf.User{
-						User:     role.Name,
-						Password: string(token),
-						Permissions: &natsconf.Permissions{
-							Publish:   role.Spec.Permissions.Publish,
-							Subscribe: role.Spec.Permissions.Subscribe,
-						},
-					}
-					users = append(users, user)
-				}
+				users = append(users, user)
 			}
 		}
+
 		// Expand authorization rules from the service account tokens.
 		sconfig.Authorization = &natsconf.AuthorizationConfig{
 			Users: users,
@@ -421,56 +366,21 @@ func addGatewayConfig(sconfig *natsconf.ServerConfig, cluster v1alpha2.ClusterSp
 		}
 		gateways = append(gateways, sgw)
 	}
-
 	sconfig.Gateway = &natsconf.GatewayConfig{
-		Name:          cluster.GatewayConfig.Name,
-		Port:          cluster.GatewayConfig.Port,
-		Gateways:      gateways,
-		RejectUnknown: cluster.GatewayConfig.RejectUnknown,
-	}
-	if cluster.Pod != nil && cluster.Pod.AdvertiseExternalIP {
-		sconfig.Gateway.Include = filepath.Join(".", constants.BootConfigGatewayFilePath)
+		Name:     cluster.GatewayConfig.Name,
+		Port:     cluster.GatewayConfig.Port,
+		Gateways: gateways,
+		Include:  filepath.Join(".", constants.BootConfigGatewayFilePath),
 	}
 
 	// Add the same for leaf nodes if present
 	if cluster.LeafNodeConfig != nil {
 		sconfig.LeafNode = &natsconf.LeafNodeServerConfig{
-			Port: cluster.LeafNodeConfig.Port,
-		}
-		for _, r := range cluster.LeafNodeConfig.Remotes {
-			var urls []string
-			if r.URL != "" {
-				urls = append(urls, r.URL)
-			}
-			if len(r.URLs) > 0 {
-				urls = append(urls, r.URLs...)
-			}
-
-			sconfig.LeafNode.Remotes = append(sconfig.LeafNode.Remotes, natsconf.LeafNodeRemote{
-				URLs:        urls,
-				Credentials: r.Credentials,
-			})
-		}
-
-		if cluster.Pod != nil && cluster.Pod.AdvertiseExternalIP {
-			sconfig.LeafNode.Include = filepath.Join(".", constants.BootConfigGatewayFilePath)
+			Port:    cluster.LeafNodeConfig.Port,
+			Include: "./advertise/gateway_advertise.conf",
 		}
 	}
 	return
-}
-
-func addWebsocketConfig(sconfig *natsconf.ServerConfig, cluster v1alpha2.ClusterSpec) {
-	if cluster.WebsocketConfig == nil {
-		return
-	}
-
-	sconfig.Websocket = &natsconf.WebsocketConfig{
-		Listen:           fmt.Sprintf(":%d", cluster.WebsocketConfig.Port),
-		HandshakeTimeout: cluster.WebsocketConfig.HandshakeTimeout,
-		Compression:      cluster.WebsocketConfig.Compression,
-	}
-
-	// WebsocketConfig.TLS added in addTLSConfig later.
 }
 
 // addOperatorConfig fills in the operator configuration to be used in the config map.
@@ -549,9 +459,6 @@ func CreateConfigSecret(kubecli corev1client.CoreV1Interface, operatorcli natsal
 		}
 		sconfig.Cluster.Routes = routes
 	}
-	if cluster.UseServerName {
-		sconfig.ServerName = "$SERVER_NAME"
-	}
 
 	addConfig(sconfig, cluster)
 	err := addAuthConfig(kubecli, operatorcli, ns, clusterName, sconfig, cluster, owner)
@@ -561,9 +468,6 @@ func CreateConfigSecret(kubecli corev1client.CoreV1Interface, operatorcli natsal
 	rawConfig, err := natsconf.Marshal(sconfig)
 	if err != nil {
 		return err
-	}
-	if cluster.UseServerName {
-		rawConfig = bytes.Replace(rawConfig, []byte(`"$SERVER_NAME"`), []byte("$SERVER_NAME"), -1)
 	}
 
 	// FIXME: Quoted "include" causes include to be ignored.
@@ -643,9 +547,6 @@ func UpdateConfigSecret(
 			Routes: routes,
 		},
 	}
-	if cluster.UseServerName {
-		sconfig.ServerName = "$SERVER_NAME"
-	}
 
 	addConfig(sconfig, cluster)
 	err = addAuthConfig(kubecli, operatorcli, ns, clusterName, sconfig, cluster, owner)
@@ -659,11 +560,6 @@ func UpdateConfigSecret(
 
 	// FIXME: Quoted "include" causes include to be ignored.
 	rawConfig = bytes.Replace(rawConfig, []byte(`"include":`), []byte("include "), -1)
-
-	// Replace server name so that it is unquoted and evaled as an env var.
-	if cluster.UseServerName {
-		rawConfig = bytes.Replace(rawConfig, []byte(`"$SERVER_NAME"`), []byte("$SERVER_NAME"), -1)
-	}
 
 	cm, err := kubecli.Secrets(ns).Get(clusterName, metav1.GetOptions{})
 	if err != nil {
@@ -708,10 +604,6 @@ func addConfig(sconfig *natsconf.ServerConfig, cluster v1alpha2.ClusterSpec) {
 	if cluster.GatewayConfig != nil {
 		addGatewayConfig(sconfig, cluster)
 	}
-	if cluster.WebsocketConfig != nil {
-		addWebsocketConfig(sconfig, cluster)
-	}
-
 	addTLSConfig(sconfig, cluster)
 	addOperatorConfig(sconfig, cluster)
 }
@@ -848,24 +740,6 @@ func newNatsLeafnodeSecretVolumeMount() v1.VolumeMount {
 	}
 }
 
-func newNatsWebsocketSecretVolume(secretName string) v1.Volume {
-	return v1.Volume{
-		Name: constants.WebsocketSecretVolumeName,
-		VolumeSource: v1.VolumeSource{
-			Secret: &v1.SecretVolumeSource{
-				SecretName: secretName,
-			},
-		},
-	}
-}
-
-func newNatsWebsocketSecretVolumeMount() v1.VolumeMount {
-	return v1.VolumeMount{
-		Name:      constants.WebsocketSecretVolumeName,
-		MountPath: constants.WebsocketCertsMountPath,
-	}
-}
-
 func newNatsOperatorJWTSecretVolume(secretName string) v1.Volume {
 	return v1.Volume{
 		Name: constants.OperatorJWTVolumeName,
@@ -929,38 +803,9 @@ func NewNatsPodSpec(namespace, name, clusterName string, cs v1alpha2.ClusterSpec
 	if cs.LeafNodeConfig != nil {
 		leafnodePort = cs.LeafNodeConfig.Port
 	}
-	var websocketPort int
-	if cs.WebsocketConfig != nil {
-		websocketPort = cs.WebsocketConfig.Port
-	}
 
-	// Initialize the pod spec with a template in case it is present.
-	spec := &v1.PodSpec{}
-	if cs.PodTemplate != nil {
-		spec = cs.PodTemplate.Spec.DeepCopy()
-		if spec.Containers != nil && len(spec.Containers) > 0 {
-			containers = spec.Containers
-		}
-	}
-
-	// First container has to be the NATS container
-	var container v1.Container
-	if len(spec.Containers) > 0 {
-		container = spec.Containers[0]
-	} else {
-		container = v1.Container{}
-	}
-
-	container = natsPodContainer(
-		container,
-		clusterName,
-		cs.Version,
-		cs.ServerImage,
-		enableClientsHostPort,
-		gatewayPort,
-		leafnodePort,
-		websocketPort,
-	)
+	container := natsPodContainer(clusterName, cs.Version, cs.ServerImage,
+		enableClientsHostPort, gatewayPort, leafnodePort)
 	container = containerWithLivenessProbe(container, natsLivenessProbe(cs))
 
 	// In case TLS was enabled as part of the NATS cluster
@@ -993,13 +838,6 @@ func NewNatsPodSpec(namespace, name, clusterName string, cs v1alpha2.ClusterSpec
 			volumes = append(volumes, volume)
 
 			volumeMount := newNatsLeafnodeSecretVolumeMount()
-			volumeMounts = append(volumeMounts, volumeMount)
-		}
-		if cs.TLS.WebsocketSecret != "" {
-			volume = newNatsWebsocketSecretVolume(cs.TLS.WebsocketSecret)
-			volumes = append(volumes, volume)
-
-			volumeMount := newNatsWebsocketSecretVolumeMount()
 			volumeMounts = append(volumeMounts, volumeMount)
 		}
 	}
@@ -1098,13 +936,7 @@ func NewNatsPodSpec(namespace, name, clusterName string, cs v1alpha2.ClusterSpec
 	}
 
 	container.Command = cmd
-
-	// If there were containers defined already, then replace the NATS container.
-	if len(containers) > 0 {
-		containers[0] = container
-	} else {
-		containers = append(containers, container)
-	}
+	containers = append(containers, container)
 
 	pod := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -1112,6 +944,13 @@ func NewNatsPodSpec(namespace, name, clusterName string, cs v1alpha2.ClusterSpec
 			Labels:      labels,
 			Annotations: annotations,
 		},
+	}
+
+	spec := &v1.PodSpec{}
+
+	// Initialize the pod spec with a template in case it is present.
+	if cs.PodTemplate != nil {
+		spec = cs.PodTemplate.Spec.DeepCopy()
 	}
 	pod.Spec = *spec
 
@@ -1121,7 +960,7 @@ func NewNatsPodSpec(namespace, name, clusterName string, cs v1alpha2.ClusterSpec
 
 	// Set default restart policy
 	if pod.Spec.RestartPolicy == "" {
-		pod.Spec.RestartPolicy = v1.RestartPolicyAlways
+		pod.Spec.RestartPolicy = v1.RestartPolicyNever
 	}
 
 	if advertiseExternalIP {
@@ -1147,42 +986,12 @@ func NewNatsPodSpec(namespace, name, clusterName string, cs v1alpha2.ClusterSpec
 			imagePullPolicy = cs.Pod.ReloaderImagePullPolicy
 		}
 
-		var reloadTarget []string
+		authFilePath := ""
 		if cs.Auth != nil {
-			if cs.Auth.ClientsAuthFile != "" {
-				reloadTarget = append(reloadTarget, filepath.Join(constants.ConfigMapMountPath, cs.Auth.ClientsAuthFile))
-			}
+			authFilePath = cs.Auth.ClientsAuthFile
 		}
 
-		if cs.TLS != nil {
-			if cs.TLS.ServerSecret != "" {
-				reloadTarget = append(reloadTarget, filepath.Join(constants.ServerCertsMountPath, cs.TLS.ServerSecretCAFileName))
-				reloadTarget = append(reloadTarget, filepath.Join(constants.ServerCertsMountPath, cs.TLS.ServerSecretCertFileName))
-				reloadTarget = append(reloadTarget, filepath.Join(constants.ServerCertsMountPath, cs.TLS.ServerSecretKeyFileName))
-			}
-			if cs.TLS.RoutesSecret != "" {
-				reloadTarget = append(reloadTarget, filepath.Join(constants.RoutesCertsMountPath, cs.TLS.RoutesSecretCAFileName))
-				reloadTarget = append(reloadTarget, filepath.Join(constants.RoutesCertsMountPath, cs.TLS.RoutesSecretCertFileName))
-				reloadTarget = append(reloadTarget, filepath.Join(constants.RoutesCertsMountPath, cs.TLS.RoutesSecretKeyFileName))
-			}
-			if cs.TLS.GatewaySecret != "" {
-				reloadTarget = append(reloadTarget, filepath.Join(constants.GatewayCertsMountPath, cs.TLS.GatewaySecretCAFileName))
-				reloadTarget = append(reloadTarget, filepath.Join(constants.GatewayCertsMountPath, cs.TLS.GatewaySecretCertFileName))
-				reloadTarget = append(reloadTarget, filepath.Join(constants.GatewayCertsMountPath, cs.TLS.GatewaySecretKeyFileName))
-			}
-			if cs.TLS.LeafnodeSecret != "" {
-				reloadTarget = append(reloadTarget, filepath.Join(constants.LeafnodeCertsMountPath, cs.TLS.LeafnodeSecretCAFileName))
-				reloadTarget = append(reloadTarget, filepath.Join(constants.LeafnodeCertsMountPath, cs.TLS.LeafnodeSecretCertFileName))
-				reloadTarget = append(reloadTarget, filepath.Join(constants.LeafnodeCertsMountPath, cs.TLS.LeafnodeSecretKeyFileName))
-			}
-			if cs.TLS.WebsocketSecret != "" {
-				reloadTarget = append(reloadTarget, filepath.Join(constants.WebsocketCertsMountPath, cs.TLS.WebsocketSecretCAFileName))
-				reloadTarget = append(reloadTarget, filepath.Join(constants.WebsocketCertsMountPath, cs.TLS.WebsocketSecretCertFileName))
-				reloadTarget = append(reloadTarget, filepath.Join(constants.WebsocketCertsMountPath, cs.TLS.WebsocketSecretKeyFileName))
-			}
-		}
-
-		reloaderContainer := natsPodReloaderContainer(image, imageTag, imagePullPolicy, cs.Pod.ReloaderResources, reloadTarget...)
+		reloaderContainer := natsPodReloaderContainer(image, imageTag, imagePullPolicy, authFilePath)
 		reloaderContainer.VolumeMounts = volumeMounts
 		containers = append(containers, reloaderContainer)
 	}
@@ -1210,8 +1019,7 @@ func NewNatsPodSpec(namespace, name, clusterName string, cs v1alpha2.ClusterSpec
 		containers = append(containers, metricsContainer)
 	}
 
-	// pod.Spec.Containers = append(pod.Spec.Containers, containers...)
-	pod.Spec.Containers = containers
+	pod.Spec.Containers = append(pod.Spec.Containers, containers...)
 	pod.Spec.Volumes = append(pod.Spec.Volumes, volumes...)
 
 	applyPodPolicy(clusterName, pod, cs.Pod)

@@ -4,30 +4,17 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-SCRIPT_ROOT=$(realpath $(dirname ${BASH_SOURCE})/..)
+# CODEGEN_PKG is the name of the package containing the "generate-groups.sh" script.
+CODEGEN_PKG="${CODEGEN_PKG:-${GOPATH}/src/k8s.io/code-generator}"
+# HACK_DIR is the path to the current directory.
+HACK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# ROOT_PKG is the name of the root package.
+ROOT_PKG="github.com/nats-io/nats-operator"
 
-# Make sure all the build tool dependencies exist in vendor
-if [ ! -d "${SCRIPT_ROOT}/vendor" ]; then
-  go mod vendor
-fi
-
-# Create a FAKE_GOPATH and FAKE_REPOPATH, and symbolic link to real repo path
-FAKE_GOPATH="$(mktemp -d)"
-trap 'rm -rf ${FAKE_GOPATH}' EXIT
-FAKE_REPOPATH="${FAKE_GOPATH}/src/github.com/nats-io/nats-operator"
-mkdir -p "$(dirname "${FAKE_REPOPATH}")" && ln -s "${SCRIPT_ROOT}" "${FAKE_REPOPATH}"
-
-# Switch to GOPATH mode, it makes codegen faster
-export GOPATH="${FAKE_GOPATH}"
-export GO111MODULE="off"
-
-cd "${FAKE_REPOPATH}"
-CODEGEN_PKG=${CODEGEN_PKG:-$(cd "${FAKE_REPOPATH}"; ls -d -1 ./vendor/k8s.io/code-generator 2>/dev/null || echo ../code-generator)}
-
-bash -x ${CODEGEN_PKG}/generate-groups.sh all \
-    github.com/nats-io/nats-operator/pkg/client github.com/nats-io/nats-operator/pkg/apis \
-    "nats:v1alpha2" \
-    --go-header-file ${SCRIPT_ROOT}/hack/boilerplate.txt
-
-rm -rf vendor
-
+# Generate the required code (deepcopy implementations, typed clients, listers and informers) using "generate-groups.sh".
+"${CODEGEN_PKG}/generate-groups.sh" \
+  "deepcopy,client,informer,lister" \
+  ${ROOT_PKG}/pkg/client \
+  ${ROOT_PKG}/pkg/apis \
+  nats:v1alpha2 \
+  --go-header-file "${HACK_DIR}/boilerplate.txt"

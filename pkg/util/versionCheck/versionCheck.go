@@ -12,16 +12,9 @@ const (
 
 	// NatsBinaryPath after v2 release.
 	NatsBinaryPath = "/nats-server"
-
-	// NightlyNatsBinaryPath is there the server is for nightly images.
-	NightlyNatsBinaryPath = "/bin/nats-server"
 )
 
 func ServerBinaryPath(version string) string {
-	if strings.HasPrefix(version, "nightly") {
-		return NightlyNatsBinaryPath
-	}
-
 	v := strings.Split(version, ".")
 	if len(v) > 0 {
 		majorVersion, err := strconv.Atoi(v[0])

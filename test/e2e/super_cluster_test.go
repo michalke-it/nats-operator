@@ -23,9 +23,9 @@ import (
 	"time"
 
 	natsv1alpha2 "github.com/nats-io/nats-operator/pkg/apis/nats/v1alpha2"
-	natsconf "github.com/nats-io/nats-operator/pkg/conf"
+	"github.com/nats-io/nats-operator/pkg/conf"
 	"github.com/nats-io/nats-operator/pkg/constants"
-	v1 "k8s.io/api/core/v1"
+	"k8s.io/api/core/v1"
 	watchapi "k8s.io/apimachinery/pkg/watch"
 )
 
@@ -50,9 +50,8 @@ func TestCreateServerWithGateways(t *testing.T) {
 			}
 
 			cluster.Spec.GatewayConfig = &natsv1alpha2.GatewayConfig{
-				Name:          "minikube",
-				Port:          32328,
-				RejectUnknown: true,
+				Name: "minikube",
+				Port: 32328,
 				Gateways: []*natsv1alpha2.RemoteGatewayOpts{
 					&natsv1alpha2.RemoteGatewayOpts{
 						Name: "minikube",
@@ -96,7 +95,7 @@ func TestCreateServerWithGateways(t *testing.T) {
 		if config.Gateway == nil {
 			return false, nil
 		}
-		if config.Gateway.Name != "minikube" || config.Gateway.Port != 32328 || !config.Gateway.RejectUnknown {
+		if config.Gateway.Name != "minikube" || config.Gateway.Port != 32328 {
 			return false, nil
 		}
 		pods, err := f.PodsForNatsCluster(nc)

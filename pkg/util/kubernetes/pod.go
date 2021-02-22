@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
@@ -36,14 +37,21 @@ import (
 )
 
 // natsPodContainer returns a NATS server pod container spec.
-func natsPodContainer(
-	container v1.Container,
-	clusterName, version, serverImage string,
-	enableClientsHostPort bool,
-	gatewayPort, leafnodePort, websocketPort int,
-) v1.Container {
-	container.Name = constants.NatsContainerName
-	container.Image = MakeNATSImage(version, serverImage)
+func natsPodContainer(clusterName, version string, serverImage string, enableClientsHostPort bool, gatewayPort int, leafnodePort int) v1.Container {
+	container := v1.Container{
+		Env: []v1.EnvVar{
+			{
+				Name:  "SVC",
+				Value: ManagementServiceName(clusterName),
+			},
+			{
+				Name:  "EXTRA",
+				Value: fmt.Sprintf("--http_port=%d", constants.MonitoringPort),
+			},
+		},
+		Name:  constants.NatsContainerName,
+		Image: MakeNATSImage(version, serverImage),
+	}
 
 	ports := []v1.ContainerPort{
 		{
@@ -86,23 +94,13 @@ func natsPodContainer(
 		}
 		ports = append(ports, port)
 	}
-	if websocketPort > 0 {
-		port := v1.ContainerPort{
-			Name:          "websocket",
-			ContainerPort: int32(websocketPort),
-			Protocol:      v1.ProtocolTCP,
-			HostPort:      int32(websocketPort),
-		}
-		ports = append(ports, port)
-	}
-
 	container.Ports = ports
 
 	return container
 }
 
 // natsPodReloaderContainer returns a NATS server pod container spec for configuration reloader.
-func natsPodReloaderContainer(image, tag, pullPolicy string, r v1.ResourceRequirements, reloadTarget ...string) v1.Container {
+func natsPodReloaderContainer(image, tag, pullPolicy, authFilePath string) v1.Container {
 	container := v1.Container{
 		Name:            "reloader",
 		Image:           fmt.Sprintf("%s:%s", image, tag),
@@ -114,13 +112,12 @@ func natsPodReloaderContainer(image, tag, pullPolicy string, r v1.ResourceRequir
 			"-pid",
 			constants.PidFilePath,
 		},
-		Resources: r,
 	}
-
-	for _, v := range reloadTarget {
-		container.Command = append(container.Command, "-config", v)
+	if authFilePath != "" {
+		// The volume is mounted as a subdirectory under the NATS config.
+		af := filepath.Join(constants.ConfigMapMountPath, authFilePath)
+		container.Command = append(container.Command, "-config", af)
 	}
-
 	return container
 }
 

@@ -2,9 +2,9 @@
 
 [![License Apache 2.0](https://img.shields.io/badge/License-Apache2-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
 [![Build Status](https://travis-ci.org/nats-io/nats-operator.svg?branch=master)](https://travis-ci.org/nats-io/nats-operator)
-[![Version](https://d25lcipzij17d.cloudfront.net/badge.svg?id=go&type=5&v=0.7.6)](https://github.com/nats-io/nats-operator/releases/tag/v0.7.6)
+[![Version](https://d25lcipzij17d.cloudfront.net/badge.svg?id=go&type=5&v=0.6.0)](https://github.com/nats-io/nats-operator/releases/tag/v0.6.0)
 
-NATS Operator manages NATS clusters atop [Kubernetes][k8s-home] using [CRDs](https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/custom-resources/).  If looking to run NATS on K8S without the operator you can also find [Helm charts in the nats-io/k8s repo](https://github.com/nats-io/k8s#helm-charts-for-nats). You can also find more info about running NATS on Kubernetes in the [docs](https://docs.nats.io/nats-on-kubernetes/nats-kubernetes) as well as a minimal setup using `StatefulSets` only without using the operator to get started [here](https://docs.nats.io/nats-on-kubernetes/minimal-setup).
+NATS Operator manages NATS clusters atop [Kubernetes][k8s-home], automating their creation and administration.
 
 [k8s-home]: http://kubernetes.io
 
@@ -26,7 +26,7 @@ metadata:
   name: example-nats-cluster
 spec:
   size: 3
-  version: "2.1.8"
+  version: "1.4.0"
 ```
 
 NATS Operator monitors creation/modification/deletion of `NatsCluster` resources and reacts by attempting to perform the any necessary operations on the associated NATS clusters in order to align their current status with the desired one.
@@ -45,14 +45,18 @@ The operation mode must be chosen when installing NATS Operator and cannot be ch
 To perform a namespace-scoped installation of NATS Operator in the Kubernetes cluster pointed at by the current context, you may run:
 
 ```console
-$ kubectl apply -f https://github.com/nats-io/nats-operator/releases/latest/download/00-prereqs.yaml
-$ kubectl apply -f https://github.com/nats-io/nats-operator/releases/latest/download/10-deployment.yaml
+$ kubectl apply -f https://github.com/nats-io/nats-operator/releases/download/v0.6.0/00-prereqs.yaml
+$ kubectl apply -f https://github.com/nats-io/nats-operator/releases/download/v0.6.0/10-deployment.yaml
 ``` 
 
 This will, by default, install NATS Operator in the `default` namespace and observe `NatsCluster` resources created in the `default` namespace, alone.
 In order to install in a different namespace, you must first create said namespace and edit the manifests above in order to specify its name wherever necessary.
 
-**WARNING:** To perform multiple namespace-scoped installations of NATS Operator, you must manually edit the `nats-operator-binding` cluster role binding in `deploy/00-prereqs.yaml` file in order to add all the required service accounts.
+**WARNING:** To perform multiple namespace-scoped installations of NATS Operator, you must manually edit the `nats-operator-bindin
+
+
+
+g` cluster role binding in `deploy/00-prereqs.yaml` file in order to add all the required service accounts.
 Failing to do so may cause all NATS Operator instances to malfunction.
 
 **WARNING:** When performing a namespace-scoped installation of NATS Operator, you must make sure that all other namespace-scoped installations that may exist in the Kubernetes cluster share the same version.
@@ -94,8 +98,8 @@ spec:
 Once you have done this, you may install NATS Operator by running:
 
 ```console
-$ kubectl apply -f https://github.com/nats-io/nats-operator/releases/latest/download/00-prereqs.yaml
-$ kubectl apply -f https://github.com/nats-io/nats-operator/releases/latest/download/10-deployment.yaml
+$ kubectl apply -f https://raw.githubusercontent.com/nats-io/nats-operator/master/deploy/00-prereqs.yaml
+$ kubectl apply -f https://raw.githubusercontent.com/nats-io/nats-operator/master/deploy/10-deployment.yaml
 ``` 
 
 **WARNING:** When performing a cluster-scoped installation of NATS Operator, you must make sure that there are no other deployments of NATS Operator in the Kubernetes cluster.
@@ -223,7 +227,7 @@ If [cert-manager](https://github.com/jetstack/cert-manager) is available in your
 Create a self-signed cluster issuer (or namespace-bound issuer) to create NATS' CA certificate:
 
 ```yaml
-apiVersion: cert-manager.io/v1alpha2
+apiVersion: certmanager.k8s.io/v1alpha1
 kind: ClusterIssuer
 metadata:
   name: selfsigning
@@ -234,7 +238,7 @@ spec:
 Create your NATS cluster's CA certificate using the new `selfsigning` issuer:
 
 ```yaml
-apiVersion: cert-manager.io/v1alpha2
+apiVersion: certmanager.k8s.io/v1alpha1
 kind: Certificate
 metadata:
   name: nats-ca
@@ -246,8 +250,6 @@ spec:
     name: selfsigning
     kind: ClusterIssuer
   commonName: nats-ca
-  usages: 
-    - cert sign # workaround for odd cert-manager behavior
   organization:
   - Your organization
   isCA: true
@@ -256,7 +258,7 @@ spec:
 Create your NATS cluster issuer based on the new `nats-ca` CA:
 
 ```yaml
-apiVersion: cert-manager.io/v1alpha2
+apiVersion: certmanager.k8s.io/v1alpha1
 kind: Issuer
 metadata:
   name: nats-ca
@@ -268,7 +270,7 @@ spec:
 Create your NATS cluster's server certificate (assuming NATS is running in the `nats-io` namespace, otherwise, set the `commonName` and `dnsNames` fields appropriately):
 
 ```yaml
-apiVersion: cert-manager.io/v1alpha2
+apiVersion: certmanager.k8s.io/v1alpha1
 kind: Certificate
 metadata:
   name: nats-server-tls
@@ -276,10 +278,6 @@ spec:
   secretName: nats-server-tls
   duration: 2160h # 90 days
   renewBefore: 240h # 10 days
-  usages:
-  - signing
-  - key encipherment
-  - server auth
   issuerRef:
     name: nats-ca
     kind: Issuer
@@ -293,7 +291,7 @@ spec:
 Create your NATS cluster's routes certificate (assuming NATS is running in the `nats-io` namespace, otherwise, set the `commonName` and `dnsNames` fields appropriately):
 
 ```yaml
-apiVersion: cert-manager.io/v1alpha2
+apiVersion: certmanager.k8s.io/v1alpha1
 kind: Certificate
 metadata:
   name: nats-routes-tls
@@ -301,11 +299,6 @@ spec:
   secretName: nats-routes-tls
   duration: 2160h # 90 days
   renewBefore: 240h # 10 days
-  usages:
-  - signing
-  - key encipherment
-  - server auth
-  - client auth # included because routes mutually verify each other
   issuerRef:
     name: nats-ca
     kind: Issuer
@@ -327,12 +320,10 @@ To try this feature using `minikube` v0.30.0+, you can configure it to start as 
 
 ```console
 $ minikube start \
-    --extra-config=apiserver.service-account-signing-key-file=/var/lib/minikube/certs/sa.key \
-    --extra-config=apiserver.service-account-key-file=/var/lib/minikube/certs/sa.pub \
-    --extra-config=apiserver.service-account-issuer=api \
-    --extra-config=apiserver.service-account-api-audiences=api,spire-server \
-    --extra-config=apiserver.authorization-mode=Node,RBAC \
-    --extra-config=kubelet.authentication-token-webhook=true
+  --extra-config=apiserver.service-account-signing-key-file=/var/lib/minikube/certs/apiserver.key \
+  --extra-config=apiserver.service-account-issuer=api \
+  --extra-config=apiserver.service-account-api-audiences=api \
+  --kubernetes-version=v1.12.4
 ```
 
 Please note that availability of this feature across Kubernetes offerings may vary widely.
@@ -409,10 +400,6 @@ NAME                                       TYPE          DATA      AGE
 nats-admin-user-example-nats-bound-token   Opaque        1         43m
 nats-user-example-nats-bound-token         Opaque        1         43m
 ```
-
-Please note that `NatsServiceRole` must be created in the same namespace as 
-`NatsCluster` is running, but `bound-token` will be created for `ServiceAccount` 
-resources that can be placed in various namespaces.
 
 An example of mounting the secret in a `Pod` can be found below:
 
@@ -582,13 +569,13 @@ spec:
 To build the `nats-operator` Docker image:
 
 ```sh
-$ docker build -f docker/operator/Dockerfile . -t <image:tag>
+$ docker build -f docker/operator/Dockerfile . <image:tag>
 ```
 
 To build the `nats-server-config-reloader`:
 
 ```sh
-$ docker build -f docker/reloader/Dockerfile . -t <image:tag>
+$ docker build -f docker/reloader/Dockerfile . <image:tag>
 ```
 
 You'll need Docker `17.06.0-ce` or higher.

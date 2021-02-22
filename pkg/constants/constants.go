@@ -1,4 +1,4 @@
-// Copyright 2017-2020 The nats-operator Authors
+// Copyright 2017 The nats-operator Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,7 +16,7 @@ package constants
 
 const (
 	// DefaultNatsVersion is the nats server version to use.
-	DefaultNatsVersion = "2.1.8"
+	DefaultNatsVersion = "2.0.0"
 
 	// ClientPort is the port for the clients.
 	ClientPort = 4222
@@ -106,12 +106,6 @@ const (
 	DefaultLeafnodeCAFileName   = "ca.pem"
 	DefaultLeafnodeCertFileName = "server.pem"
 	DefaultLeafnodeKeyFileName  = "server-key.pem"
-
-	WebsocketCertsMountPath      = "/etc/nats-websocket-tls-certs"
-	DefaultWebsocketCAFileName   = "ca.pem"
-	DefaultWebsocketCertFileName = "server.pem"
-	DefaultWebsocketKeyFileName  = "server-key.pem"
-	WebsocketSecretVolumeName    = "websocket-tls-certs"
 
 	// OperatorJWTMountPath is the path where the JWT for the
 	// operator is located.
